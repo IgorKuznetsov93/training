@@ -8,7 +8,8 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { isConfigured, username, syncStatus, syncError, connect, disconnect } = useSync();
+  const { isConfigured, username, syncStatus, syncError, connect, disconnect, refreshSync } =
+    useSync();
   const [tokenInput, setTokenInput] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,6 +69,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               <p className="settings-modal__syncing">Синхронизация…</p>
             )}
             {syncError && <p className="settings-modal__error">{syncError}</p>}
+            <button
+              type="button"
+              className="settings-modal__btn settings-modal__btn--primary"
+              onClick={() => refreshSync()}
+              disabled={syncStatus === 'syncing'}
+            >
+              {syncStatus === 'syncing' ? 'Обновление…' : 'Обновить с GitHub'}
+            </button>
             <button type="button" className="settings-modal__btn settings-modal__btn--danger" onClick={handleDisconnect}>
               Отключить
             </button>
@@ -75,7 +84,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         ) : (
           <div className="settings-modal__form">
             <p className="settings-modal__hint">
-              Создай Personal Access Token на GitHub с правом <code>gist</code> и вставь сюда.
+              Создай Classic token на GitHub с правом <code>gist</code> и вставь сюда. На каждом
+              устройстве — тот же токен.
             </p>
             <label className="settings-modal__label">
               GitHub Token

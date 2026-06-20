@@ -32,7 +32,7 @@ export async function validateToken(token: string): Promise<GitHubUserDTO> {
 }
 
 export async function findExistingGist(token: string): Promise<GitHubGistDTO | null> {
-  const response = await fetch(`${API_BASE}/gists`, {
+  const response = await fetch(`${API_BASE}/gists?per_page=100`, {
     headers: createHeaders(token),
   });
   const gists = await parseResponse<GitHubGistDTO[]>(response);

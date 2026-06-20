@@ -103,6 +103,7 @@
 .settings-modal__btn--primary {
   background: var(--accent-pink);
   color: #fff;
+  margin-bottom: 8px;
 }
 
 .settings-modal__btn--primary:disabled {

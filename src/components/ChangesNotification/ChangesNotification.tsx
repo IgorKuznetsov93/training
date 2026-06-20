@@ -40,7 +40,7 @@ export function ChangesNotification() {
             <li key={dateKey}>{formatDateLabel(dateKey)}</li>
           ))}
         </ul>
-        <p className="changes-notification__hint">Нажми, чтобы применить и закрыть</p>
+        <p className="changes-notification__hint">Изменения уже применены. Нажми, чтобы закрыть</p>
       </div>
     </div>
   );

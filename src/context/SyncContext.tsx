@@ -32,7 +32,7 @@ import type { WorkoutDayDTO } from '../types/workout.types';
 import { getWorkoutByDate } from '../utils/dateUtils';
 import { applySyncData, getChangedDates, mergeWorkoutWithOverride, workoutToOverride } from '../utils/workoutMerge';
 
-const POLL_INTERVAL_MS = 45_000;
+const POLL_INTERVAL_MS = 15_000;
 
 interface SyncContextValue {
   isConfigured: boolean;
@@ -116,6 +116,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      applyRemoteData(remoteData, gist.updated_at);
       setRemoteChanges({ changedDates, remoteData });
     },
     [applyRemoteData],
@@ -176,23 +177,23 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
       try {
         const user = await validateToken(newToken);
-        let activeGistId = loadGistId();
+        let activeGistId: string | null = null;
         let gist: Awaited<ReturnType<typeof fetchGist>> | null = null;
 
-        if (activeGistId) {
-          try {
-            gist = await fetchGist(newToken, activeGistId);
-          } catch {
-            activeGistId = null;
-            gist = null;
-          }
-        }
-
-        if (!gist) {
-          const existing = await findExistingGist(newToken);
-          if (existing) {
-            gist = existing;
-            activeGistId = existing.id;
+        const existing = await findExistingGist(newToken);
+        if (existing) {
+          gist = existing;
+          activeGistId = existing.id;
+        } else {
+          const storedGistId = loadGistId();
+          if (storedGistId) {
+            try {
+              gist = await fetchGist(newToken, storedGistId);
+              activeGistId = storedGistId;
+            } catch {
+              gist = null;
+              activeGistId = null;
+            }
           }
         }
 
@@ -218,6 +219,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setUsername(user.login);
 
         if (changedDates.length > 0) {
+          applyRemoteData(remoteData, gist.updated_at);
           setRemoteChanges({ changedDates, remoteData });
         } else {
           applyRemoteData(remoteData, gist.updated_at);
@@ -246,22 +248,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const dismissRemoteChanges = useCallback(() => {
-    if (!remoteChanges || !token || !gistId) {
-      setRemoteChanges(null);
-      return;
-    }
-
-    fetchGist(token, gistId)
-      .then((gist) => {
-        const remoteData = parseSyncData(gist);
-        applyRemoteData(remoteData, gist.updated_at);
-        setRemoteChanges(null);
-      })
-      .catch(() => {
-        applyRemoteData(remoteChanges.remoteData, remoteChanges.remoteData.updatedAt);
-        setRemoteChanges(null);
-      });
-  }, [remoteChanges, applyRemoteData, token, gistId]);
+    setRemoteChanges(null);
+  }, []);
 
   const getWorkoutForDate = useCallback(
     (date: Date): WorkoutDayDTO => {
@@ -324,11 +312,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    const handleFocus = () => {
+      refreshSync();
+    };
+
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleFocus);
     };
   }, [isConfigured, refreshSync]);
 
