@@ -1,0 +1,23 @@
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-elevated: #1c1c1c;
+  --text-primary: #f5f5f5;
+  --text-secondary: #a3a3a3;
+  --text-muted: #525252;
+  --accent-pink: #ff2d7a;
+  --accent-pink-soft: #ff6b9d;
+  --accent-pink-glow: rgba(255, 45, 122, 0.25);
+  --border-subtle: #262626;
+  --intensity-heavy: #ff2d7a;
+  --intensity-medium: #e84a8a;
+  --intensity-light: #c46b9a;
+  --intensity-recovery: #8a5a7a;
+  --intensity-rest: #525252;
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --transition: 180ms ease;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}

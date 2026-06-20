@@ -1,0 +1,40 @@
+.intensity-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.intensity-badge--heavy {
+  background: rgba(255, 45, 122, 0.15);
+  color: var(--intensity-heavy);
+  border: 1px solid rgba(255, 45, 122, 0.35);
+}
+
+.intensity-badge--medium {
+  background: rgba(232, 74, 138, 0.12);
+  color: var(--intensity-medium);
+  border: 1px solid rgba(232, 74, 138, 0.3);
+}
+
+.intensity-badge--light {
+  background: rgba(196, 107, 154, 0.12);
+  color: var(--intensity-light);
+  border: 1px solid rgba(196, 107, 154, 0.3);
+}
+
+.intensity-badge--recovery {
+  background: rgba(138, 90, 122, 0.12);
+  color: var(--intensity-recovery);
+  border: 1px solid rgba(138, 90, 122, 0.3);
+}
+
+.intensity-badge--rest {
+  background: rgba(82, 82, 82, 0.15);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
