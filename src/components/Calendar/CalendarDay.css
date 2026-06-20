@@ -67,6 +67,12 @@
   color: #fff;
 }
 
+.calendar-day--modified:not(.calendar-day--selected) .calendar-day__number {
+  text-decoration: underline;
+  text-decoration-color: var(--accent-pink-soft);
+  text-underline-offset: 3px;
+}
+
 .calendar-day:not(.calendar-day--selected):hover {
   background: var(--bg-elevated);
 }

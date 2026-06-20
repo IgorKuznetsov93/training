@@ -1,4 +1,5 @@
-import { getWorkoutByDate, isPastDay, isToday } from '../../utils/dateUtils';
+import { useSync } from '../../context/SyncContext';
+import { isPastDay, isToday } from '../../utils/dateUtils';
 import type { WorkoutIntensity } from '../../types/workout.types';
 import './CalendarDay.css';
 
@@ -20,9 +21,11 @@ function getIntensityColor(intensity: WorkoutIntensity): string {
 }
 
 export function CalendarDay({ date, isSelected, onSelect }: CalendarDayProps) {
-  const workout = getWorkoutByDate(date);
+  const { getWorkoutForDate, hasOverride } = useSync();
+  const workout = getWorkoutForDate(date);
   const past = isPastDay(date);
   const today = isToday(date);
+  const isModified = hasOverride(workout.date);
 
   const showDot =
     !workout.isRestDay &&
@@ -35,6 +38,7 @@ export function CalendarDay({ date, isSelected, onSelect }: CalendarDayProps) {
     past && 'calendar-day--past',
     today && 'calendar-day--today',
     isSelected && 'calendar-day--selected',
+    isModified && 'calendar-day--modified',
   ]
     .filter(Boolean)
     .join(' ');

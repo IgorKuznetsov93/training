@@ -44,8 +44,30 @@ button {
 }
 
 .app-header {
+  position: relative;
   text-align: center;
   padding-bottom: 4px;
+}
+
+.app-header__settings {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition), background var(--transition);
+}
+
+.app-header__settings:active {
+  color: var(--accent-pink);
+  background: var(--bg-elevated);
 }
 
 .app-header h1 {
