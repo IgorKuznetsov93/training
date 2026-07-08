@@ -31,17 +31,40 @@ export async function validateToken(token: string): Promise<GitHubUserDTO> {
   return parseResponse<GitHubUserDTO>(response);
 }
 
+export function pickBestGist(gists: GitHubGistDTO[]): GitHubGistDTO | null {
+  if (gists.length === 0) {
+    return null;
+  }
+
+  return gists.reduce((best, gist) => {
+    const bestTime = new Date(best.updated_at).getTime();
+    const gistTime = new Date(gist.updated_at).getTime();
+
+    if (gistTime > bestTime) {
+      return gist;
+    }
+
+    if (gistTime < bestTime) {
+      return best;
+    }
+
+    const bestCount = Object.keys(parseSyncData(best).overrides).length;
+    const gistCount = Object.keys(parseSyncData(gist).overrides).length;
+    return gistCount > bestCount ? gist : best;
+  });
+}
+
 export async function findExistingGist(token: string): Promise<GitHubGistDTO | null> {
   const response = await fetch(`${API_BASE}/gists?per_page=100`, {
     headers: createHeaders(token),
   });
   const gists = await parseResponse<GitHubGistDTO[]>(response);
-  return (
-    gists.find(
-      (gist) =>
-        gist.description === GIST_DESCRIPTION && gist.files[GIST_FILENAME] !== undefined,
-    ) ?? null
+  const matching = gists.filter(
+    (gist) =>
+      gist.description === GIST_DESCRIPTION && gist.files[GIST_FILENAME] !== undefined,
   );
+
+  return pickBestGist(matching);
 }
 
 export async function fetchGist(token: string, gistId: string): Promise<GitHubGistDTO> {

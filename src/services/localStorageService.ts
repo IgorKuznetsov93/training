@@ -47,6 +47,9 @@ export function clearAllSyncStorage(): void {
   clearToken();
   clearGistId();
   clearLastRevision();
+}
+
+export function clearLocalOverrides(): void {
   localStorage.removeItem(STORAGE_KEYS.overrides);
 }
 

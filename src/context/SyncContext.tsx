@@ -30,7 +30,13 @@ import {
 import type { RemoteChangesDTO, SyncDataDTO, WorkoutOverrideDTO } from '../types/sync.types';
 import type { WorkoutDayDTO } from '../types/workout.types';
 import { getWorkoutByDate } from '../utils/dateUtils';
-import { applySyncData, getChangedDates, mergeWorkoutWithOverride, workoutToOverride } from '../utils/workoutMerge';
+import {
+  getChangedDates,
+  mergeOverrides,
+  mergeWorkoutWithOverride,
+  pickWinningDates,
+  workoutToOverride,
+} from '../utils/workoutMerge';
 
 const POLL_INTERVAL_MS = 15_000;
 
@@ -49,6 +55,8 @@ interface SyncContextValue {
   disconnect: () => void;
   dismissRemoteChanges: () => void;
   refreshSync: () => Promise<void>;
+  restoreFromGist: () => Promise<void>;
+  setSyncPaused: (paused: boolean) => void;
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null);
@@ -73,6 +81,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [remoteChanges, setRemoteChanges] = useState<RemoteChangesDTO | null>(null);
   const lastRevisionRef = useRef<string | null>(loadLastRevision());
   const isSavingRef = useRef(false);
+  const isSyncPausedRef = useRef(false);
   const remoteChangesRef = useRef<RemoteChangesDTO | null>(null);
 
   useEffect(() => {
@@ -81,16 +90,22 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   const isConfigured = Boolean(token && gistId);
 
-  const applyRemoteData = useCallback((data: SyncDataDTO, revision: string) => {
-    const nextOverrides = applySyncData(data);
-    setOverrides(nextOverrides);
-    persistLocalState(nextOverrides, revision);
-    lastRevisionRef.current = revision;
+  const setSyncPaused = useCallback((paused: boolean) => {
+    isSyncPausedRef.current = paused;
   }, []);
 
+  const applyMergedData = useCallback(
+    (mergedOverrides: Record<string, WorkoutOverrideDTO>, revision: string) => {
+      setOverrides(mergedOverrides);
+      persistLocalState(mergedOverrides, revision);
+      lastRevisionRef.current = revision;
+    },
+    [],
+  );
+
   const checkRemoteChanges = useCallback(
-    async (activeToken: string, activeGistId: string) => {
-      if (isSavingRef.current || remoteChangesRef.current) {
+    async (activeToken: string, activeGistId: string, silent = true) => {
+      if (isSavingRef.current || isSyncPausedRef.current || remoteChangesRef.current) {
         return;
       }
 
@@ -99,7 +114,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const lastRevision = lastRevisionRef.current;
 
       if (!lastRevision) {
-        applyRemoteData(remoteData, gist.updated_at);
+        const localOverrides = loadLocalOverrides();
+        const merged = mergeOverrides(localOverrides, remoteData.overrides, remoteData.updatedAt);
+        applyMergedData(merged, gist.updated_at);
         return;
       }
 
@@ -108,18 +125,27 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
 
       const localOverrides = loadLocalOverrides();
-      const changedDates = getChangedDates(localOverrides, remoteData.overrides);
+      const merged = mergeOverrides(localOverrides, remoteData.overrides, remoteData.updatedAt);
+      const incomingDates = pickWinningDates(localOverrides, merged);
 
-      if (changedDates.length === 0) {
+      if (incomingDates.length === 0) {
         saveLastRevision(gist.updated_at);
         lastRevisionRef.current = gist.updated_at;
         return;
       }
 
-      applyRemoteData(remoteData, gist.updated_at);
-      setRemoteChanges({ changedDates, remoteData });
+      applyMergedData(merged, gist.updated_at);
+
+      if (!silent) {
+        return;
+      }
+
+      setRemoteChanges({
+        changedDates: incomingDates,
+        remoteData: { ...remoteData, overrides: merged },
+      });
     },
-    [applyRemoteData],
+    [applyMergedData],
   );
 
   const refreshSync = useCallback(async () => {
@@ -128,15 +154,64 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      setSyncStatus('syncing');
       setSyncError(null);
       await checkRemoteChanges(token, gistId);
-      setSyncStatus('idle');
     } catch (error) {
-      setSyncStatus('error');
       setSyncError(error instanceof Error ? error.message : 'Ошибка синхронизации');
     }
   }, [token, gistId, checkRemoteChanges]);
+
+  const restoreFromGist = useCallback(async () => {
+    if (!token) {
+      throw new Error('Сначала подключи токен');
+    }
+
+    setSyncStatus('syncing');
+    setSyncError(null);
+
+    try {
+      const latestGist = await findExistingGist(token);
+      let activeGistId = latestGist?.id ?? gistId ?? loadGistId();
+      let gist = latestGist;
+
+      if (!gist && activeGistId) {
+        gist = await fetchGist(token, activeGistId);
+      }
+
+      if (!gist || !activeGistId) {
+        throw new Error('Gist с изменениями не найден на GitHub');
+      }
+
+      if (activeGistId !== gist.id) {
+        saveGistId(gist.id);
+        setGistId(gist.id);
+        activeGistId = gist.id;
+      }
+
+      const remoteData = parseSyncData(gist);
+      const localOverrides = loadLocalOverrides();
+      const merged = mergeOverrides(localOverrides, remoteData.overrides, remoteData.updatedAt);
+
+      applyMergedData(merged, gist.updated_at);
+
+      if (Object.keys(merged).length > 0 && activeGistId) {
+        const data: SyncDataDTO = {
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          overrides: merged,
+        };
+        const updated = await updateGist(token, activeGistId, data);
+        persistLocalState(merged, updated.updated_at);
+        lastRevisionRef.current = updated.updated_at;
+      }
+
+      setSyncStatus('idle');
+    } catch (error) {
+      setSyncStatus('error');
+      setSyncError(error instanceof Error ? error.message : 'Ошибка восстановления');
+      throw error;
+    }
+  }, [token, gistId, applyMergedData]);
 
   const pushToGist = useCallback(
     async (nextOverrides: Record<string, WorkoutOverrideDTO>) => {
@@ -149,15 +224,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setSyncError(null);
 
       try {
+        const gist = await fetchGist(token, gistId);
+        const remoteData = parseSyncData(gist);
+        const merged = mergeOverrides(nextOverrides, remoteData.overrides, remoteData.updatedAt);
+
         const data: SyncDataDTO = {
           version: 1,
           updatedAt: new Date().toISOString(),
-          overrides: nextOverrides,
+          overrides: merged,
         };
-        const gist = await updateGist(token, gistId, data);
-        persistLocalState(nextOverrides, gist.updated_at);
-        lastRevisionRef.current = gist.updated_at;
-        setOverrides(nextOverrides);
+        const updatedGist = await updateGist(token, gistId, data);
+        persistLocalState(merged, updatedGist.updated_at);
+        lastRevisionRef.current = updatedGist.updated_at;
+        setOverrides(merged);
         setSyncStatus('idle');
       } catch (error) {
         setSyncStatus('error');
@@ -210,6 +289,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
         const remoteData = parseSyncData(gist);
         const localOverrides = loadLocalOverrides();
+        const merged = mergeOverrides(localOverrides, remoteData.overrides, remoteData.updatedAt);
         const changedDates = getChangedDates(localOverrides, remoteData.overrides);
 
         saveToken(newToken);
@@ -217,12 +297,13 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setToken(newToken);
         setGistId(activeGistId);
         setUsername(user.login);
+        applyMergedData(merged, gist.updated_at);
 
         if (changedDates.length > 0) {
-          applyRemoteData(remoteData, gist.updated_at);
-          setRemoteChanges({ changedDates, remoteData });
-        } else {
-          applyRemoteData(remoteData, gist.updated_at);
+          setRemoteChanges({
+            changedDates,
+            remoteData: { ...remoteData, overrides: merged },
+          });
         }
 
         setSyncStatus('idle');
@@ -232,7 +313,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [applyRemoteData],
+    [applyMergedData],
   );
 
   const disconnect = useCallback(() => {
@@ -240,7 +321,6 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setGistId(null);
     setUsername(null);
-    setOverrides({});
     setRemoteChanges(null);
     setSyncError(null);
     setSyncStatus('idle');
@@ -291,16 +371,35 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
 
     validateToken(token)
-      .then((user) => setUsername(user.login))
-      .catch(() => disconnect());
-  }, [token, disconnect]);
+      .then((user) => {
+        setUsername(user.login);
+        setSyncError(null);
+      })
+      .catch((error) => {
+        setSyncError(error instanceof Error ? error.message : 'Не удалось проверить токен');
+      });
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !gistId) {
+      return;
+    }
+
+    const bootstrap = async () => {
+      try {
+        await checkRemoteChanges(token, gistId, false);
+      } catch (error) {
+        setSyncError(error instanceof Error ? error.message : 'Ошибка загрузки данных');
+      }
+    };
+
+    bootstrap();
+  }, [token, gistId, checkRemoteChanges]);
 
   useEffect(() => {
     if (!isConfigured) {
       return;
     }
-
-    refreshSync();
 
     const intervalId = window.setInterval(() => {
       refreshSync();
@@ -342,6 +441,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       disconnect,
       dismissRemoteChanges,
       refreshSync,
+      restoreFromGist,
+      setSyncPaused,
     }),
     [
       isConfigured,
@@ -358,6 +459,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       disconnect,
       dismissRemoteChanges,
       refreshSync,
+      restoreFromGist,
+      setSyncPaused,
     ],
   );
 

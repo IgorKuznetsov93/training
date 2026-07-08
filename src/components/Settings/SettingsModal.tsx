@@ -8,11 +8,12 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { isConfigured, username, syncStatus, syncError, connect, disconnect, refreshSync } =
+  const { isConfigured, username, syncStatus, syncError, connect, disconnect, refreshSync, restoreFromGist } =
     useSync();
   const [tokenInput, setTokenInput] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   if (!isOpen) {
     return null;
@@ -46,6 +47,18 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     onClose();
   };
 
+  const handleRestore = async () => {
+    setIsRestoring(true);
+    setLocalError(null);
+    try {
+      await restoreFromGist();
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : 'Ошибка восстановления');
+    } finally {
+      setIsRestoring(false);
+    }
+  };
+
   return (
     <div className="settings-modal" role="dialog" aria-modal="true">
       <div className="settings-modal__backdrop" onClick={onClose} />
@@ -73,9 +86,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               type="button"
               className="settings-modal__btn settings-modal__btn--primary"
               onClick={() => refreshSync()}
-              disabled={syncStatus === 'syncing'}
+              disabled={syncStatus === 'syncing' || isRestoring}
             >
               {syncStatus === 'syncing' ? 'Обновление…' : 'Обновить с GitHub'}
+            </button>
+            <button
+              type="button"
+              className="settings-modal__btn settings-modal__btn--secondary"
+              onClick={handleRestore}
+              disabled={syncStatus === 'syncing' || isRestoring}
+            >
+              {isRestoring ? 'Восстановление…' : 'Восстановить из Gist'}
             </button>
             <button type="button" className="settings-modal__btn settings-modal__btn--danger" onClick={handleDisconnect}>
               Отключить

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { useSync } from '../../context/SyncContext';
 import type { WorkoutBlockDTO, WorkoutDayDTO, WorkoutIntensity } from '../../types/workout.types';
 import { IntensityBadge } from '../IntensityBadge/IntensityBadge';
 import './DayDetail.css';
@@ -13,6 +14,14 @@ interface DayDetailProps {
   onReset: (dateKey: string) => Promise<void>;
 }
 
+interface DraftBlockDTO extends WorkoutBlockDTO {
+  id: string;
+}
+
+interface DraftDayDTO extends Omit<WorkoutDayDTO, 'blocks'> {
+  blocks: DraftBlockDTO[];
+}
+
 const INTENSITY_LABELS: Record<WorkoutIntensity, string> = {
   heavy: 'Тяжёлая',
   medium: 'Средняя',
@@ -23,10 +32,22 @@ const INTENSITY_LABELS: Record<WorkoutIntensity, string> = {
 
 const INTENSITY_OPTIONS: WorkoutIntensity[] = ['heavy', 'medium', 'light', 'recovery', 'rest'];
 
-const EMPTY_BLOCK: WorkoutBlockDTO = {
-  title: 'Новый блок',
-  description: '',
-};
+function createDraft(workout: WorkoutDayDTO, idPrefix: string): DraftDayDTO {
+  return {
+    ...workout,
+    blocks: workout.blocks.map((block, index) => ({
+      ...block,
+      id: `${idPrefix}-block-${index}`,
+    })),
+  };
+}
+
+function draftToWorkout(draft: DraftDayDTO): WorkoutDayDTO {
+  return {
+    ...draft,
+    blocks: draft.blocks.map(({ id: _id, ...block }) => block),
+  };
+}
 
 export function DayDetail({
   workout,
@@ -37,25 +58,45 @@ export function DayDetail({
   onSave,
   onReset,
 }: DayDetailProps) {
+  const { setSyncPaused } = useSync();
+  const draftIdPrefix = useId();
   const [isEditing, setIsEditing] = useState(false);
-  const [draft, setDraft] = useState<WorkoutDayDTO>(workout);
+  const [draft, setDraft] = useState<DraftDayDTO>(() => createDraft(workout, draftIdPrefix));
   const [saveError, setSaveError] = useState<string | null>(null);
+  const editingDateRef = useRef(workout.date);
 
   useEffect(() => {
     if (!isEditing) {
-      setDraft(workout);
+      setDraft(createDraft(workout, draftIdPrefix));
     }
-  }, [workout, isEditing]);
+  }, [workout, isEditing, draftIdPrefix]);
+
+  useEffect(() => {
+    if (isEditing && editingDateRef.current !== workout.date) {
+      setIsEditing(false);
+      setSyncPaused(false);
+      editingDateRef.current = workout.date;
+    }
+  }, [workout.date, isEditing, setSyncPaused]);
+
+  const handleStartEditing = () => {
+    editingDateRef.current = workout.date;
+    setDraft(createDraft(workout, draftIdPrefix));
+    setIsEditing(true);
+    setSyncPaused(true);
+  };
 
   const handleBlockChange = (
-    index: number,
+    blockId: string,
     field: keyof WorkoutBlockDTO,
     value: string,
   ) => {
     setDraft((prev) => ({
       ...prev,
-      blocks: prev.blocks.map((block, blockIndex) =>
-        blockIndex === index ? { ...block, [field]: value || undefined } : block,
+      blocks: prev.blocks.map((block) =>
+        block.id === blockId
+          ? { ...block, [field]: field === 'description' || field === 'title' ? value : value || undefined }
+          : block,
       ),
     }));
   };
@@ -63,22 +104,34 @@ export function DayDetail({
   const handleAddBlock = () => {
     setDraft((prev) => ({
       ...prev,
-      blocks: [...prev.blocks, { ...EMPTY_BLOCK }],
+      blocks: [
+        ...prev.blocks,
+        {
+          id: `${draftIdPrefix}-block-${Date.now()}`,
+          title: 'Новый блок',
+          description: '',
+        },
+      ],
     }));
   };
 
-  const handleRemoveBlock = (index: number) => {
+  const handleRemoveBlock = (blockId: string) => {
     setDraft((prev) => ({
       ...prev,
-      blocks: prev.blocks.filter((_, blockIndex) => blockIndex !== index),
+      blocks: prev.blocks.filter((block) => block.id !== blockId),
     }));
+  };
+
+  const handleStopEditing = () => {
+    setIsEditing(false);
+    setSyncPaused(false);
   };
 
   const handleSave = async () => {
     setSaveError(null);
     try {
-      await onSave(draft);
-      setIsEditing(false);
+      await onSave(draftToWorkout(draft));
+      handleStopEditing();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Ошибка сохранения');
     }
@@ -88,16 +141,16 @@ export function DayDetail({
     setSaveError(null);
     try {
       await onReset(workout.date);
-      setIsEditing(false);
+      handleStopEditing();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Ошибка сброса');
     }
   };
 
   const handleCancel = () => {
-    setDraft(workout);
-    setIsEditing(false);
+    setDraft(createDraft(workout, draftIdPrefix));
     setSaveError(null);
+    handleStopEditing();
   };
 
   return (
@@ -106,7 +159,7 @@ export function DayDetail({
         <div className="day-detail__header-row">
           <h2 className="day-detail__title">{workout.dayLabel}</h2>
           {canEdit && !isEditing && (
-            <button type="button" className="day-detail__edit-btn" onClick={() => setIsEditing(true)}>
+            <button type="button" className="day-detail__edit-btn" onClick={handleStartEditing}>
               Изменить
             </button>
           )}
@@ -160,14 +213,14 @@ export function DayDetail({
           </label>
 
           <div className="day-detail__blocks-editor">
-            {draft.blocks.map((block, index) => (
-              <article key={`${block.title}-${index}`} className="day-detail__block day-detail__block--edit">
+            {draft.blocks.map((block) => (
+              <article key={block.id} className="day-detail__block day-detail__block--edit">
                 <label className="day-detail__field">
                   Название
                   <input
                     className="day-detail__input"
                     value={block.title}
-                    onChange={(event) => handleBlockChange(index, 'title', event.target.value)}
+                    onChange={(event) => handleBlockChange(block.id, 'title', event.target.value)}
                   />
                 </label>
                 <label className="day-detail__field">
@@ -175,7 +228,7 @@ export function DayDetail({
                   <input
                     className="day-detail__input"
                     value={block.duration ?? ''}
-                    onChange={(event) => handleBlockChange(index, 'duration', event.target.value)}
+                    onChange={(event) => handleBlockChange(block.id, 'duration', event.target.value)}
                     placeholder="25 мин"
                   />
                 </label>
@@ -184,7 +237,9 @@ export function DayDetail({
                   <textarea
                     className="day-detail__textarea"
                     value={block.description}
-                    onChange={(event) => handleBlockChange(index, 'description', event.target.value)}
+                    onChange={(event) =>
+                      handleBlockChange(block.id, 'description', event.target.value)
+                    }
                     rows={3}
                   />
                 </label>
@@ -192,7 +247,7 @@ export function DayDetail({
                   <button
                     type="button"
                     className="day-detail__remove-btn"
-                    onClick={() => handleRemoveBlock(index)}
+                    onClick={() => handleRemoveBlock(block.id)}
                   >
                     Удалить блок
                   </button>
@@ -234,7 +289,7 @@ export function DayDetail({
       ) : (
         <div className="day-detail__blocks">
           {workout.blocks.map((block, index) => (
-            <article key={`${block.title}-${index}`} className="day-detail__block">
+            <article key={`${workout.date}-${index}`} className="day-detail__block">
               <div className="day-detail__block-header">
                 <h3 className="day-detail__block-title">{block.title}</h3>
                 {block.duration && (
