@@ -115,6 +115,13 @@ export function pickWinningDates(
     .sort();
 }
 
+export function areOverridesEqual(
+  left: Record<string, WorkoutOverrideDTO>,
+  right: Record<string, WorkoutOverrideDTO>,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export function countOverrides(overrides: Record<string, WorkoutOverrideDTO>): number {
   return Object.keys(overrides).length;
 }

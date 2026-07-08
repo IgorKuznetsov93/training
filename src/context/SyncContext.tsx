@@ -31,6 +31,7 @@ import type { RemoteChangesDTO, SyncDataDTO, WorkoutOverrideDTO } from '../types
 import type { WorkoutDayDTO } from '../types/workout.types';
 import { getWorkoutByDate } from '../utils/dateUtils';
 import {
+  areOverridesEqual,
   getChangedDates,
   mergeOverrides,
   mergeWorkoutWithOverride,
@@ -111,32 +112,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
       const gist = await fetchGist(activeToken, activeGistId);
       const remoteData = parseSyncData(gist);
-      const lastRevision = lastRevisionRef.current;
-
-      if (!lastRevision) {
-        const localOverrides = loadLocalOverrides();
-        const merged = mergeOverrides(localOverrides, remoteData.overrides, remoteData.updatedAt);
-        applyMergedData(merged, gist.updated_at);
-        return;
-      }
-
-      if (gist.updated_at === lastRevision) {
-        return;
-      }
-
       const localOverrides = loadLocalOverrides();
       const merged = mergeOverrides(localOverrides, remoteData.overrides, remoteData.updatedAt);
-      const incomingDates = pickWinningDates(localOverrides, merged);
+      const revisionMatches = gist.updated_at === lastRevisionRef.current;
+      const localMatchesMerged = areOverridesEqual(localOverrides, merged);
 
-      if (incomingDates.length === 0) {
-        saveLastRevision(gist.updated_at);
-        lastRevisionRef.current = gist.updated_at;
+      if (revisionMatches && localMatchesMerged) {
         return;
       }
 
+      const incomingDates = pickWinningDates(localOverrides, merged);
       applyMergedData(merged, gist.updated_at);
 
-      if (!silent) {
+      if (!silent || incomingDates.length === 0) {
         return;
       }
 
@@ -189,19 +177,18 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       }
 
       const remoteData = parseSyncData(gist);
-      const localOverrides = loadLocalOverrides();
-      const merged = mergeOverrides(localOverrides, remoteData.overrides, remoteData.updatedAt);
+      const remoteOverrides = remoteData.overrides;
 
-      applyMergedData(merged, gist.updated_at);
+      applyMergedData(remoteOverrides, gist.updated_at);
 
-      if (Object.keys(merged).length > 0 && activeGistId) {
+      if (Object.keys(remoteOverrides).length > 0 && activeGistId) {
         const data: SyncDataDTO = {
           version: 1,
           updatedAt: new Date().toISOString(),
-          overrides: merged,
+          overrides: remoteOverrides,
         };
         const updated = await updateGist(token, activeGistId, data);
-        persistLocalState(merged, updated.updated_at);
+        persistLocalState(remoteOverrides, updated.updated_at);
         lastRevisionRef.current = updated.updated_at;
       }
 
